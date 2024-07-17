@@ -31,7 +31,9 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     const usersCollection = client.db("Ekash").collection("users");
-    const transactionsCollection = client.db("Ekash").collection("transactions");
+    const transactionsCollection = client
+      .db("Ekash")
+      .collection("transactions");
     await client.connect();
     // Send a ping to confirm a successful connection
 
@@ -63,16 +65,16 @@ async function run() {
     };
 
     //verify Admin
-    const verifyAdmin=async(req,res,next)=>{
-      const email=req.decoded.email;
-      const query={email:email}
-      const user=await usersCollection.findOne(query)
-      const isAdmin=user?.role=="admin"
-      if(!isAdmin){
-        return res.status(403).send({message:"forbidden access"})
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await usersCollection.findOne(query);
+      const isAdmin = user?.role == "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
       }
       next();
-    }
+    };
 
     //Registration
 
@@ -112,16 +114,25 @@ async function run() {
       }
     });
 
-   
-
     //get all users:
-    app.get("/users", verifyToken,verifyAdmin, async (req, res) => {
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       const result = await usersCollection.find().toArray();
       res.send(result);
     });
 
+    //get individual user:
+    app.get("/users/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const result = await usersCollection.findOne({ email });
+      res.send(result);
+    });
+
     //Update user status :
-    app.patch("/users/update/:email",verifyToken,verifyAdmin,async(req,res)=>{
+    app.patch(
+      "/users/update/:email",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
         const email = req.params.email;
         const user = req.body;
         const query = { email };
@@ -131,25 +142,68 @@ async function run() {
           },
         };
         const result = await usersCollection.updateOne(query, updatedDoc);
-        res.send(result)
-      
-    })
+        res.send(result);
+      }
+    );
 
     //send money:
-    app.patch("/users/sendMoney/:email",async(req,res)=>{
-      const email=req.params.email
-      const sendUserNumber=req.body.sentTo
-      const isExist=await usersCollection.findOne({number:sendUserNumber})
-      if(isExist){
-        return res.send({message:"valid user"})
-      }else{
-        res.send({message:"this user don't exist"})
+    app.patch("/users/sendMoney/:email",verifyToken, async (req, res) => {
+      const email = req.params.email;
+      const updatedBalance = req.body.amount;
+
+      //finding the user to send
+      const sendUserNumber = req.body.sentTo;
+      const receiverUser = await usersCollection.findOne({
+        number: sendUserNumber,
+        role: "user",
+      });
+
+      ///checking pin is okay or not
+      const pin = req.body.pin;
+      const user = await usersCollection.findOne({ email });
+      const pinMatchedWithNumber = await bcrypt.compare(
+        pin.toString(),
+        user.pin
+      );
+
+      const newBalance = parseFloat(user.balance) - parseFloat(updatedBalance);
+      const newReceiverBalance = parseFloat(receiverUser.balance) + parseFloat(updatedBalance);
+      try {
+        if (receiverUser && pinMatchedWithNumber) {
+        //  const query = { email };
+          const updatedDoc = {
+            $set: {
+              balance: newBalance,
+            },
+          };
+          const updatedReceiverBalance = {
+            $set: {
+              balance: newReceiverBalance,
+            },
+          };
+          const update = await usersCollection.updateOne(user, updatedDoc);
+          const update1=await usersCollection.updateOne(receiverUser,updatedReceiverBalance)
+          res.status(200).send({
+            message: "Transaction successful",
+            senderUpdate: update,
+            receiverUpdate: update1
+          });
+        } else {
+          res.status(401).send({ error: "Enter a valid User Number" });
+        }
+      } catch (err) {
+        res.status(401).send({ error: "something is wrong" });
       }
+    });
+
+
+    //add new transaction :
+    app.post("/transactions",async(req,res)=>{
+      const transaction=req.body;
+      const result= await transactionsCollection.insertOne(transaction)
+      res.send(result)
     })
-
-
-
-
+    
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
