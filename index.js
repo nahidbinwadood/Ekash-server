@@ -34,6 +34,7 @@ async function run() {
     const transactionsCollection = client
       .db("Ekash")
       .collection("transactions");
+    const requestsCollection = client.db("Ekash").collection("requests");
     await client.connect();
     // Send a ping to confirm a successful connection
 
@@ -147,7 +148,7 @@ async function run() {
     );
 
     //send money:
-    app.patch("/users/sendMoney/:email",verifyToken, async (req, res) => {
+    app.patch("/users/sendMoney/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const updatedBalance = req.body.amount;
 
@@ -167,10 +168,11 @@ async function run() {
       );
 
       const newBalance = parseFloat(user.balance) - parseFloat(updatedBalance);
-      const newReceiverBalance = parseFloat(receiverUser.balance) + parseFloat(updatedBalance);
+      const newReceiverBalance =
+        parseFloat(receiverUser.balance) + parseFloat(updatedBalance);
       try {
         if (receiverUser && pinMatchedWithNumber) {
-        //  const query = { email };
+          //  const query = { email };
           const updatedDoc = {
             $set: {
               balance: newBalance,
@@ -182,11 +184,14 @@ async function run() {
             },
           };
           const update = await usersCollection.updateOne(user, updatedDoc);
-          const update1=await usersCollection.updateOne(receiverUser,updatedReceiverBalance)
+          const update1 = await usersCollection.updateOne(
+            receiverUser,
+            updatedReceiverBalance
+          );
           res.status(200).send({
             message: "Transaction successful",
             senderUpdate: update,
-            receiverUpdate: update1
+            receiverUpdate: update1,
           });
         } else {
           res.status(401).send({ error: "Enter a valid User Number" });
@@ -196,14 +201,96 @@ async function run() {
       }
     });
 
-
     //add new transaction :
-    app.post("/transactions",async(req,res)=>{
-      const transaction=req.body;
-      const result= await transactionsCollection.insertOne(transaction)
+    app.post("/transactions", verifyToken, async (req, res) => {
+      const transaction = req.body;
+      const result = await transactionsCollection.insertOne(transaction);
+      res.send(result);
+    });
+
+    //individual transactions:
+    app.get("/transaction/:email",verifyToken,async(req,res)=>{
+      const email=req.params.email;
+      const result=await transactionsCollection.find({UserEmail:email}).toArray()
       res.send(result)
     })
-    
+
+    //cash in :
+    app.post("/cash-in", verifyToken,async (req, res) => {
+      //finding the user to send
+      const agentNumber = req.body.sentTo;
+      const agent = await usersCollection.findOne({
+        number: agentNumber,
+        role: "agent",
+      });
+      console.log("Agent is ", agent);
+
+       ///checking pin is okay or not
+       const email = req.body.UserEmail;
+       const pin = req.body.pin;
+       const user = await usersCollection.findOne({ email });
+       const pinMatchedWithNumber = await bcrypt.compare(
+         pin.toString(),
+         user.pin
+       );
+       try {
+        if (pinMatchedWithNumber && agent) {
+          const salt = await bcrypt.genSalt(10);
+          const securePin = await bcrypt.hash(req.body.pin, salt);
+          const user = req.body;
+          const result = await requestsCollection.insertOne({
+            ...user,
+            pin: securePin,
+          });
+          res.send(result);
+        }else{
+          res.status(401).send({ error: "Enter a valid  Number" });
+        }
+      } catch (err) {
+        res.status(401).send({ error: "something is wrong" });
+      }
+    });
+
+
+
+    //cash out:
+    app.post("/cash-out", verifyToken,async (req, res) => {
+      //finding the user to send
+      const agentNumber = req.body.sentTo;
+      const agent = await usersCollection.findOne({
+        number: agentNumber,
+        role: "agent",
+      });
+      console.log("Agent is ", agent);
+
+      ///checking pin is okay or not
+      const email = req.body.UserEmail;
+      const pin = req.body.pin;
+      const user = await usersCollection.findOne({ email });
+      const pinMatchedWithNumber = await bcrypt.compare(
+        pin.toString(),
+        user.pin
+      );
+
+      try {
+        if (pinMatchedWithNumber && agent) {
+          const salt = await bcrypt.genSalt(10);
+          const securePin = await bcrypt.hash(req.body.pin, salt);
+          const user = req.body;
+          const result = await requestsCollection.insertOne({
+            ...user,
+            pin: securePin,
+          });
+          res.send(result);
+        }else{
+          res.status(401).send({ error: "Enter a valid  Number" });
+        }
+      } catch (err) {
+        res.status(401).send({ error: "something is wrong" });
+      }
+    });
+
+
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
