@@ -138,7 +138,7 @@ async function run() {
     //send money:
     app.patch("/users/sendMoney/:email",async(req,res)=>{
       const email=req.params.email
-      const sendUserNumber=req.body.number
+      const sendUserNumber=req.body.sentTo
       const isExist=await usersCollection.findOne({number:sendUserNumber})
       if(isExist){
         return res.send({message:"valid user"})
